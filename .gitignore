@@ -1,0 +1,30 @@
+# Env and secrets
+.env
+.env.local
+*.env
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project-specific
+automated-content-generator/assets/temp/
+automated-content-generator/result/
+*.mp4
+*.log
