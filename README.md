@@ -187,4 +187,115 @@ remove_temp_files()     Cleans assets/temp/ (keeps clip.mp4)
 - **Tweet-card image quality** — Selenium scrapers target two external sites that have changed their HTML. The fallback is plain white text on dark background. To get real tweet-card styling: fix the CSS selectors in `src/images_win.py`, swap in a local HTML renderer, or generate images with a different library.
 - **TTS voice variety** — gTTS only has language/accent options, not named voices. If you want named voices (Matthew, Emma, etc.) without Streamlabs, consider AWS Polly directly or ElevenLabs.
 - **Background video duration** — `background.py` picks a random start between second 20 and `(duration - script_length)`. Background videos shorter than ~30 s will crash. The placeholder `default.mp4` is 60 s; real content should be longer.
-- **OpenClaw / TypeScript side** — not yet wired to the Python bridge. The skill manifest is at `openclaw/skills/video-factory/SKILL.md`; integration with the OpenClaw runtime is the next step.
+- **OpenClaw / TypeScript side** — skill manifest at `openclaw/skills/video-factory/SKILL.md`. See **Testing OpenClaw** below to run the gateway and agent so the agent can invoke the video-factory skill.
+
+---
+
+## Testing OpenClaw
+
+Use this to run the OpenClaw gateway and agent so it can run the video-factory skill (build/post videos from natural language).
+
+### 1. Install OpenClaw (Node 22+ and pnpm)
+
+From the **repo root** (AutoBrainrot):
+
+```powershell
+cd openclaw
+pnpm install
+```
+
+(If you don’t have pnpm: `npm install -g pnpm`.)
+
+### 2. Create OpenClaw config
+
+Create or edit **`%USERPROFILE%\.openclaw\openclaw.json`** (e.g. `C:\Users\YourName\.openclaw\openclaw.json`). Use your **actual repo root path** for `workspace` and `extraDirs` (Windows: use forward slashes or escaped backslashes in JSON).
+
+Minimal config so the agent sees the video-factory skill and runs from the repo (include `gateway.mode` so the gateway starts without "Missing config"):
+
+```json
+{
+  "gateway": { "mode": "local" },
+  "agents": {
+    "defaults": {
+      "workspace": "C:/Users/YourName/CleanDevEnvironment/Passion/OpenClaw/AutoBrainrot"
+    }
+  },
+  "skills": {
+    "load": {
+      "extraDirs": ["C:/Users/YourName/CleanDevEnvironment/Passion/OpenClaw/AutoBrainrot/openclaw/skills"]
+    }
+  },
+  "providers": {
+    "anthropic": { "apiKey": "your-anthropic-key" }
+  },
+  "models": {
+    "default": "anthropic/claude-sonnet-4-20250514"
+  }
+}
+```
+
+- Replace `YourName` and the path with your real user and repo path.
+- `agents.defaults.workspace`: repo root so the agent runs `python openclaw/skills/video-factory/bridge.py ...` from the right directory.
+- `skills.load.extraDirs`: so OpenClaw loads the `video-factory` skill from `openclaw/skills`.
+- Set a real `providers` / `models` key you use (e.g. OpenAI, Anthropic). The agent needs at least one model to respond.
+
+### 3. Start the gateway
+
+From **`openclaw/`**:
+
+```powershell
+pnpm openclaw gateway --port 18789 --verbose
+```
+
+To use the project’s **NVIDIA NIM** model (so the log shows `agent model: nvidia/llama-3.1-nemotron-70b-instruct`), set the config before starting:
+
+```powershell
+cd openclaw
+$env:OPENCLAW_CONFIG_PATH = "$PWD\openclaw.autobrainrot.json"
+pnpm openclaw gateway --port 18789 --verbose --allow-unconfigured
+```
+
+Leave this terminal open. You should see the gateway listening (e.g. on 18789).
+
+### 4. Run the agent (second terminal)
+
+From the **repo root** (AutoBrainrot), in a **new** terminal:
+
+```powershell
+cd openclaw
+pnpm openclaw agent --agent main --message "Make a short video about North Carolina and post it to Instagram. Use the video-factory skill: run the bridge with a topic and --post."
+```
+
+The agent should see the video-factory skill in its prompt and run something like:
+
+`python openclaw/skills/video-factory/bridge.py --topic "North Carolina" --post`
+
+(from the workspace directory). The bridge uses your existing `.venv` and `automated-content-generator/.env`; ensure **Python and the venv are on PATH** when the agent runs (or run the agent from the same environment where `python` points to `.venv`).
+
+### 5. Optional: run agent in dev (from repo root)
+
+If you want the agent to use the repo as workspace and your PATH (e.g. so `python` is the venv):
+
+```powershell
+cd C:\Users\YourName\CleanDevEnvironment\Passion\OpenClaw\AutoBrainrot
+$env:PATH = "$PWD\.venv\Scripts;$env:PATH"
+cd openclaw
+pnpm openclaw agent --agent main --message "Use the video-factory skill to build and post a short about octopuses. Run bridge with --topic and --post."
+```
+
+### Troubleshooting
+
+- **“Skill not found”** — Check `extraDirs` in `openclaw.json` and that the path contains `openclaw/skills` (with a `video-factory` folder and `SKILL.md`).
+- **“python not found”** — Start the agent from the repo root and prepend `.venv\Scripts` to PATH so `python` is the venv Python.
+- **Bridge runs but upload fails** — Confirm `automated-content-generator/.env` has `INSTAGRAM_USERNAME` and `INSTAGRAM_PASSWORD` (and optional `INSTAGRAM_SECRET` for 2FA).
+- **Gateway not found** — Ensure the gateway is running in the first terminal and the second terminal uses the same OpenClaw install (`cd openclaw` then `pnpm openclaw agent ...`).
+- **"Missing config"** — Add `"gateway": { "mode": "local" }` to `~/.openclaw/openclaw.json`, or run gateway with `--allow-unconfigured`.
+- **"Pass --to &lt;E.164&gt;, --session-id, or --agent to choose a session"** — The agent CLI needs a target. Use `--agent main` for the default agent (e.g. `pnpm openclaw agent --agent main --message "..."`).
+- **"No API key found for provider anthropic"** / **Gateway log shows "agent model: anthropic/…"** — Use the project’s **NVIDIA NIM** model and key. Set the project config for **both** the gateway and the agent so they use nvidia:  
+  **Gateway:** `$env:OPENCLAW_CONFIG_PATH = "$PWD\openclaw.autobrainrot.json"; pnpm openclaw gateway --port 18789 --verbose --allow-unconfigured`  
+  **Agent:** `$env:OPENCLAW_CONFIG_PATH = "$PWD\openclaw.autobrainrot.json"; pnpm openclaw agent --agent main --message "..."`  
+  (Run both from `openclaw/`; the NIM key is loaded from `automated-content-generator/.env`.)  
+  Alternatively, add to `~/.openclaw/openclaw.json`: `"agents": { "defaults": { "model": { "primary": "nvidia/llama-3.1-nemotron-70b-instruct" } } }`.
+- **"Unknown model: nvidia/llama-3.1-nemotron-70b-instruct"** when the agent runs via the gateway — The gateway may be using an old build. From `openclaw/` force a rebuild, then restart the gateway:  
+  `$env:OPENCLAW_FORCE_BUILD = "1"; $env:OPENCLAW_CONFIG_PATH = "$PWD\openclaw.autobrainrot.json"; pnpm openclaw gateway --port 18789 --verbose --allow-unconfigured`
+- **"404 status code (no body)"** when using the nvidia model — The NIM API returned 404. Usually the model is not enabled for your API key: open [build.nvidia.com](https://build.nvidia.com), sign in, open the [Nemotron 70B](https://build.nvidia.com/nvidia/llama-3_1-nemotron-70b-instruct) (or your chosen NIM) page, and ensure the model is added/activated for your account so your key can call it. If 404 persists, try the alternate model id in config: set `agents.defaults.model.primary` to `nvidia/llama-3_1-nemotron-70b-instruct` (underscore instead of dot in 3.1).

@@ -42,6 +42,13 @@ websocket-client>=1.6.2
 sortedcontainers>=2.4.0
 typing_extensions>=4.7.1
 
+# --- B-roll / video download ---
+yt-dlp>=2024.1.1
+
+# --- AI / LLM ---
+openai>=1.30.0
+edge-tts>=6.1.9
+
 # --- CLI / UX ---
 rich>=13.5.2
 colorama>=0.4.6
